@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# AUTHOR: gotbletu <gotbletu@gmail.com>
+# SOCIAL: https://www.youtube.com/user/gotbletu|https://github.com/gotbletu|https://twitter.com/gotbletu
+# Forkby: Tichiko
+# DESC:   convert (non-splitted) bin/cue to psx vcd (playstation video cd) [only for modded playstation 2 console]
+# DEPEND: coreutils gawk sed psmisc mame-tools
+#         popstationr (https://github.com/pseiler/popstationr)
+#         cue2pops (https://github.com/makefu/cue2pops-linux)
+# DEMO:   https://youtu.be/jqffZaPFFrE
+# REFF:   Open PS2 Loader aka OPL v1641+ (http://www.ps2-home.com/forum/viewtopic.php?f=13&t=3)
+#         Popstarter (https://assemblergames.com/threads/ps2-pops-stuff-popstarter.45347/)
+#         Popstarter #2 (https://www.psx-place.com/resources/popstarter.683/)
+#         GameID/Character Limit http://www.ps2-home.com/forum/viewtopic.php?t=5311
+
+# Create working directories relative to where the script is run
+mkdir -p ./tmp ./vcd
+
+if [[ $# -lt 1 || $1 = "-h" || $1 = "--help" ]]; then
+  printf "%s\n" "info: convert (non-splitted) bin/cue to psx vcd (playstation video cd) [only for modded playstation 2 console]"
+  printf "\n"
+  printf "%s\n" "usage: ${0##*/} [cuefile]"
+  printf "\n"
+  printf "%s\n" "  $ ${0##*/} file.cue"
+  printf "%s\n" "  $ ${0##*/} file1.cue file2.cue file3.cue"
+  printf "%s\n" "  $ ${0##*/} *.cue"
+  printf "\n"
+  printf "%s\n" "Where To Put PSX VCD Games On USB?:"
+  printf "%s\n" "  mass:/POPS/POPSTARTER.ELF"
+  printf "%s\n" "  mass:/POPS/POPS_IOX.PAK"   # md5sum a625d0b3036823cdbf04a3c0e1648901
+  printf "%s\n" "  mass:/POPS/SLUS_008.21.Street Fighter Alpha 3 (USA).VCD"
+  printf "\n"
+  printf "%s\n" "Load Game: PS2 FMCB > Open PS2 Loader (v1641+) > Game List > PSX"
+  exit 1
+fi
+
+# Optional: clean old temp cues
+find ./tmp -maxdepth 1 -type f -name 'psx2vcd.*.cue' -delete 2>/dev/null
+
+# kill popstationr after getting gameid from log file then use cue2pops to convert to VCD
+myArray=( "$@" )
+shopt -s nullglob
+
+for arg in "${myArray[@]}"; do
+  PSX_LOG=./tmp/psx2vcd.log
+
+  cuedir="$(cd -- "$(dirname -- "$arg")" && pwd)"
+  cuefile="$(basename -- "$arg")"
+  cuepath="$cuedir/$cuefile"
+
+  # --- Detect split/multi-FILE CUEs; auto-merge to single BIN if possible ---
+  file_count="$(grep -iEc '^[[:space:]]*file[[:space:]]+' "$cuepath" || echo 0)"
+  work_cue="$cuepath"
+  work_dir="$cuedir"
+
+  if (( file_count > 1 )); then
+    if command -v chdman >/dev/null 2>&1; then
+      base="$(basename -- "${cuefile%.*}")"
+      tmp_chd="./tmp/${base}.tmp.chd"
+      merged_bin="./tmp/${base}.bin"
+      merged_cue="./tmp/${base}.cue"
+      echo "Merging split dump → single BIN for '$cuefile'..."
+      if chdman createcd -i "$cuepath" -o "$tmp_chd" >/dev/null 2>&1 \
+         && chdman extractcd -i "$tmp_chd" -o "$merged_cue" -ob "$merged_bin" >/dev/null 2>&1; then
+        rm -f -- "$tmp_chd"
+        work_cue="$merged_cue"
+        work_dir="$(cd -- "$(dirname -- "$merged_cue")" && pwd)"
+      else
+        echo "skip: '$cuefile' is a split/multi-file cue and 'chdman' failed/unavailable."
+        rm -f -- "$tmp_chd"
+        continue
+      fi
+    else
+      echo "skip: '$cuefile' has multiple FILE entries and 'chdman' is not installed."
+      continue
+    fi
+  fi
+
+  # --- Rewrite FILE lines to absolute paths (quoted) ---
+  tmpcue="$(mktemp -p "./tmp" psx2vcd.XXXXXX.cue)" || { echo "error: mktemp failed"; continue; }
+  {
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^[[:space:]]*[Ff][Ii][Ll][Ee][[:space:]]+ ]]; then
+        if [[ "$line" =~ ^[[:space:]]*[Ff][Ii][Ll][Ee][[:space:]]+\"([^\"]+)\" ]]; then
+          orig="${BASH_REMATCH[1]}"
+        else
+          rest="${line#*[Ff][Ii][Ll][Ee]}"
+          rest="${rest#"${rest%%[![:space:]]*}"}"
+          orig="${rest%%[[:space:]]*}"
+        fi
+        base="$(basename -- "$orig")"
+
+        match=""
+        if [[ -e "$work_dir/$base" ]]; then
+          match="$work_dir/$base"
+        else
+          match="$(find "$work_dir" -maxdepth 1 -type f -iname "$base" -print -quit 2>/dev/null)"
+        fi
+        if [[ -z "$match" ]]; then
+          echo "error: '$base' not found for '$cuefile' in '$work_dir'" >&2
+          echo "$line"
+          continue
+        fi
+
+        tail="${line#*FILE}"
+        tail="${tail#"${tail%%[![:space:]]*}"}"
+        if [[ "$tail" == \"*\"* ]]; then
+          tail="${tail#\"$orig\"}"
+        else
+          tail="${tail#"$orig"}"
+        fi
+        echo "FILE \"$match\"$tail"
+      else
+        echo "$line"
+      fi
+    done < "$work_cue"
+  } > "$tmpcue" || { echo "error: failed to rewrite CUE for $cuefile"; rm -f -- "$tmpcue"; continue; }
+
+  # --- Title (32 chars) ---
+  TITLE="$(basename -- "${arg%.*}")"
+  TITLE="$(printf '%s' "$TITLE" | cut -c1-32 | awk '{$1=$1};1')"
+
+  # --- Optional GAMEID (quiet) ---
+  GAMEID=""
+  # If you want no 'Terminated' messages at all, comment the next block.
+  ( sleep 2; pkill -x popstationr >/dev/null 2>&1 ) &
+  { popstationr "${arg%.*}" AUTO 9 "${arg%.*}".[Bb][Ii][Nn] > "$PSX_LOG" 2>/dev/null || true; } 2>/dev/null
+  if [[ -s "$PSX_LOG" ]]; then
+    GAMEID="$(head -n1 "$PSX_LOG" | awk -F '[][]' '{print $2}' | sed 's/./&_/4' | sed 's/./&./8')"
+  fi
+
+  outname="${GAMEID:+$GAMEID.}$TITLE.VCD"
+  outpath="./vcd/$outname"
+
+  echo "Converting: '$cuefile' -> '$outname'"
+  # --- Run cue2pops; treat success by output existence ---
+  cue2pops "$tmpcue" "$outpath" >/dev/null 2>&1
+  if [[ -s "$outpath" ]]; then
+    # Success — keep quiet
+    :
+  else
+    echo "error: cue2pops failed on '$cuefile'"
+    echo "---- FILE lines in rewritten CUE ----"
+    grep -in '^[[:space:]]*file' "$tmpcue" || true
+  fi
+
+  rm -f -- "$tmpcue"
+done
+
+rm -f EBOOT.PBP 2>/dev/null || true
