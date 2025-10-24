@@ -34,7 +34,7 @@ These are the tools required to run **PSX2VCD**:
 
 
 ```bash
-sudo pacman -S coreutils gawk sed psmisc mame-tools
+coreutils gawk sed psmisc mame-tools
 ```
 
 ---
