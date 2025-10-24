@@ -1,0 +1,20 @@
+pkgbase = psx2vcd-git
+	pkgdesc = Convert PS1 .bin/.cue to POPStarter .VCD with sane defaults and helpers
+	pkgver = 0.r4.g577313a
+	pkgrel = 1
+	url = https://github.com/Tichiko/psx2vcd
+	arch = any
+	license = GPL3
+	makedepends = git
+	depends = gawk
+	depends = sed
+	depends = psmisc
+	depends = mame-tools
+	depends = popstationr-git
+	depends = cue2pops
+	provides = psx2vcd
+	conflicts = psx2vcd
+	source = psx2vcd::git+https://github.com/Tichiko/psx2vcd.git
+	sha256sums = SKIP
+
+pkgname = psx2vcd-git
