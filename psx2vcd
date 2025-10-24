@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# AUTHOR: gotbletu <gotbletu@gmail.com>
-# SOCIAL: https://www.youtube.com/user/gotbletu|https://github.com/gotbletu|https://twitter.com/gotbletu
-# Forkby: Tichiko
-# DESC:   convert (non-splitted) bin/cue to psx vcd (playstation video cd) [only for modded playstation 2 console]
+# Forkof: gotbletu
+# AUTHOR: Tichiko <tichikothedev@proton.me>
+# DESC:   convert bin/cue to psx vcd (playstation video cd) [only for modded playstation 2 console]
 # DEPEND: coreutils gawk sed psmisc mame-tools
 #         popstationr (https://github.com/pseiler/popstationr)
 #         cue2pops (https://github.com/makefu/cue2pops-linux)
-# DEMO:   https://youtu.be/jqffZaPFFrE
 # REFF:   Open PS2 Loader aka OPL v1641+ (http://www.ps2-home.com/forum/viewtopic.php?f=13&t=3)
 #         Popstarter (https://assemblergames.com/threads/ps2-pops-stuff-popstarter.45347/)
 #         Popstarter #2 (https://www.psx-place.com/resources/popstarter.683/)
@@ -128,8 +126,15 @@ for arg in "${myArray[@]}"; do
     GAMEID="$(head -n1 "$PSX_LOG" | awk -F '[][]' '{print $2}' | sed 's/./&_/4' | sed 's/./&./8')"
   fi
 
-  outname="${GAMEID:+$GAMEID.}$TITLE.VCD"
+  # If a GAMEID was found, append it after the title; otherwise, just title
+  if [[ -n "$GAMEID" && "$GAMEID" != "OPTI_ON....." ]]; then
+    outname="$TITLE [$GAMEID].VCD"
+  else
+    outname="$TITLE.VCD"
+  fi
+
   outpath="./vcd/$outname"
+
 
   echo "Converting: '$cuefile' -> '$outname'"
   # --- Run cue2pops; treat success by output existence ---
